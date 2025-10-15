@@ -1,7 +1,7 @@
 import { describe, it, vi, expect } from 'vitest';
 
 import withPromise from '.';
-import { createMockStream, mockAbort, mockFetch } from '../../__test__';
+import { createMockStream, mockFetch } from '../../__test__';
 import createStream from '../../core';
 
 describe('withPromise', () => {
@@ -17,11 +17,9 @@ describe('withPromise', () => {
 
     const onMessage = vi.fn();
 
-    const { promise } = withPromise(getTestData, {
+    await withPromise(getTestData, undefined, {
       onMessage,
     });
-
-    await promise;
 
     expect(onMessage).toHaveBeenCalled();
   });
@@ -37,10 +35,8 @@ describe('withPromise', () => {
       url: 'test',
     });
 
-    const { promise } = withPromise(getTestData, {});
-
     try {
-      await promise;
+      await withPromise(getTestData);
     } catch (error) {
       expect(error).toEqual(
         new Error('Request failed: 500 Internal Server Error'),
@@ -48,25 +44,27 @@ describe('withPromise', () => {
     }
   });
 
-  it.concurrent('스트리밍을 종료시킬 수 있다.', async () => {
-    mockFetch({
-      ok: true,
-      body: createMockStream([{ event: 'test', data: { text: 'stable 1' } }]),
-    });
+  it.concurrent(
+    '스트리밍이 종료되면 마지막으로 수신한 메세지 객체를 반환한다.',
+    async () => {
+      const chunks = [
+        { event: 'test', data: { text: 'stable 1' } },
+        { event: 'test', data: { text: 'stable 2' } },
+        { event: 'test', data: { text: 'stable 3' } },
+      ];
 
-    const getTestData = createStream({
-      url: 'test',
-    });
+      mockFetch({
+        ok: true,
+        body: createMockStream(chunks),
+      });
 
-    const onAbort = vi.fn();
+      const getTestData = createStream({
+        url: 'test',
+      });
 
-    const { abort } = withPromise(getTestData, {
-      onAbort,
-    });
+      const latest = await withPromise(getTestData, undefined);
 
-    abort();
-
-    expect(mockAbort).toHaveBeenCalled();
-    expect(onAbort).toHaveBeenCalled();
-  });
+      expect(latest).toEqual(chunks[chunks.length - 1]);
+    },
+  );
 });

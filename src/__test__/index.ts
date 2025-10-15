@@ -39,12 +39,6 @@ export const mockFetch = (response: MockResponse) => {
   global.fetch = vi.fn().mockResolvedValue(response);
 };
 
-export const mockAbort = vi.fn();
-
-global.AbortController = vi.fn().mockImplementation(() => ({
-  abort: mockAbort,
-}));
-
 global.TextDecoderStream = vi.fn();
 
 global.TransformStream = vi.fn();

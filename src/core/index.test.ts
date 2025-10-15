@@ -1,17 +1,19 @@
 import { describe, it, vi, expect } from 'vitest';
 
 import createStream from '.';
-import { createMockStream, mockAbort, mockFetch } from '../__test__';
+import { createMockStream, mockFetch } from '../__test__';
 
 describe('createStream', () => {
   it.concurrent('스트리밍을 처리할 수 있다.', async () => {
+    const chunks = [
+      { event: 'test', data: { text: 'stable 1' } },
+      { event: 'test', data: { text: 'stable 2' } },
+      { event: 'test', data: { text: 'stable 3' } },
+    ];
+
     mockFetch({
       ok: true,
-      body: createMockStream([
-        { event: 'test', data: { text: 'stable 1' } },
-        { event: 'test', data: { text: 'stable 2' } },
-        { event: 'test', data: { text: 'stable 3' } },
-      ]),
+      body: createMockStream(chunks),
     });
 
     const stream = createStream({
@@ -24,7 +26,9 @@ describe('createStream', () => {
 
     await stream.connect();
 
-    expect(onMessage).toHaveBeenCalledTimes(3);
+    expect(onMessage).toHaveBeenNthCalledWith(1, chunks[0]);
+    expect(onMessage).toHaveBeenNthCalledWith(2, chunks[1]);
+    expect(onMessage).toHaveBeenNthCalledWith(3, chunks[2]);
   });
 
   it.concurrent('HTTP 에러를 처리할 수 있다.', async () => {
@@ -48,7 +52,7 @@ describe('createStream', () => {
   });
 
   it.concurrent(
-    '스트리밍이 종료된 후 수행할 작업을 처리할 수 있다.',
+    '스트리밍이 종료 되었을 때 작업을 처리할 수 있다.',
     async () => {
       mockFetch({
         ok: true,
@@ -68,26 +72,4 @@ describe('createStream', () => {
       expect(onClose).toHaveBeenCalled();
     },
   );
-
-  it.concurrent('스트리밍을 강제 종료시킬 수 있다.', () => {
-    mockFetch({
-      ok: true,
-      body: createMockStream([{ event: 'test', data: { text: 'stable 1' } }]),
-    });
-
-    const stream = createStream({
-      url: 'test',
-    });
-
-    const onClose = vi.fn();
-
-    stream.addEventListener('close', onClose);
-
-    stream.connect();
-
-    stream.disconnect();
-
-    expect(mockAbort).toHaveBeenCalled();
-    expect(onClose).toHaveBeenCalled();
-  });
 });

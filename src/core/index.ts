@@ -1,5 +1,5 @@
 import { fetchImpl, type RequestConfig } from './fetch';
-import type { Overwrite, Resolvable, SkipParameters } from '../types';
+import type { Overwrite, Resolvable } from '../types';
 import { createSSEJsonParser } from './parsers/json';
 import { createEmitter, type Emitter } from '../utils/emitter';
 import { resolve } from '../utils/function';
@@ -38,16 +38,15 @@ export type StreamEvents<T> = {
   close: undefined;
 };
 
-export type Stream<T, P = unknown> = {
+export type ConnectOptions = {
+  signal?: AbortSignal;
+};
+
+export type Stream<T, V = void> = {
   /**
    * @description 스트림을 연결하는 함수입니다.
    */
-  connect: SkipParameters<(params: P) => Promise<void>>;
-
-  /**
-   * @description 스트림을 강제 종료하는 함수입니다.
-   */
-  disconnect: () => void;
+  connect: (variables: V, options?: ConnectOptions) => Promise<void>;
 
   /**
    * @description 스트림 생명주기 기반의 이벤트 리스너를 등록하는 함수입니다.
@@ -69,40 +68,40 @@ export type Stream<T, P = unknown> = {
  *   method: 'POST',
  * });
  *
- * stream.addEventListener('message', message => {
+ * stream.addEventListener('message', (message) => {
  *   console.log(message);
  * });
  *
- * stream.addEventListener('error', error => {
+ * stream.addEventListener('error', (error) => {
  *   console.error(error);
  * });
  *
- * stream.connect(params);
+ * stream.addEventListener('close', () => {
+ *   console.log('close');
+ * });
+ *
+ * stream.connect();
  * ```
  */
-const createStream = <T, P = unknown>(
-  config: StreamRequestConfig<P>,
-): Stream<T, P> => {
+const createStream = <T, V = void>(
+  config: StreamRequestConfig<V>,
+): Stream<T, V> => {
   const emitter = createEmitter<StreamEvents<T>>();
   const parse = createSSEJsonParser();
 
-  let abortController: AbortController | undefined;
-
-  const clear = () => {
-    abortController = undefined;
-    emitter.clear();
-  };
-
-  const connect = async (params: P = {} as P): Promise<void> => {
-    abortController = new AbortController();
+  const connect = async (
+    variables: V,
+    options?: ConnectOptions,
+  ): Promise<void> => {
+    const { signal } = options ?? {};
 
     try {
       const response = await fetchImpl({
         ...config,
-        url: resolve(config.url, params),
-        query: resolve(config.query, params),
-        body: resolve(config.body, params),
-        signal: abortController.signal,
+        url: resolve(config.url, variables),
+        query: resolve(config.query, variables),
+        body: resolve(config.body, variables),
+        signal,
       });
 
       if (!response.body) {
@@ -136,19 +135,11 @@ const createStream = <T, P = unknown>(
       emitter.emit('error', error as Error);
     } finally {
       emitter.emit('close');
-      clear();
     }
-  };
-
-  const disconnect = () => {
-    abortController?.abort();
-    emitter.emit('close');
-    clear();
   };
 
   return {
     connect,
-    disconnect,
     addEventListener: emitter.on,
     removeEventListener: emitter.off,
   };

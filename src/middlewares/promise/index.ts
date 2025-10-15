@@ -1,9 +1,21 @@
-import type {
-  WithPromiseBaseOptions,
-  WithPromiseOptions,
-  WithPromiseReturn,
-} from './types';
-import type { Stream } from '../../core';
+import type { ConnectOptions, Stream, StreamMessage } from '../../core';
+
+export type WithPromiseFunction = {
+  <T>(
+    stream: Stream<T, void>,
+    variables: void,
+    options?: WithPromiseOptions<T>,
+  ): Promise<StreamMessage<T> | undefined>;
+  <T, V>(
+    stream: Stream<T, V>,
+    variables: V,
+    options?: WithPromiseOptions<T>,
+  ): Promise<StreamMessage<T> | undefined>;
+};
+
+export type WithPromiseOptions<T> = ConnectOptions & {
+  onMessage?: (message: StreamMessage<T>) => void | Promise<void>;
+};
 
 /**
  * @description createStream 인스턴스를 promise 기반으로 변환하는 유틸리티입니다.
@@ -14,61 +26,59 @@ import type { Stream } from '../../core';
  *   method: 'POST',
  * });
  *
- * const { promise, abort } = withPromise(stream, {
- *   onMessage: (message) => {
- *     console.log(message);
- *   },
- *   onAbort: () => {
- *     console.log('abort');
- *   }
- * });
+ * try {
+ *   const latestMessage = await withPromise(stream, undefined, {
+ *     onMessage: (message) => {
+ *       console.log(message);
+ *     },
+ *   });
+ * } catch (error) {
+ *   console.error(error);
+ * }
  * ```
  */
-const withPromise = <T, P = unknown>(
-  stream: Stream<T, P>,
-  options: WithPromiseOptions<T, P>,
-): WithPromiseReturn => {
-  let _resolve: () => void;
+const withPromise: WithPromiseFunction = <T, V = void>(
+  stream: Stream<T, V>,
+  variables: V,
+  options?: WithPromiseOptions<T>,
+) => {
+  const { signal, onMessage } = options ?? {};
 
-  const { params, onMessage, onAbort } = options as WithPromiseBaseOptions<
-    T,
-    P
-  >;
+  return new Promise<StreamMessage<T> | undefined>((resolve, reject) => {
+    let latestMessage: StreamMessage<T> | undefined;
 
-  const abort = () => {
-    stream.disconnect();
-    _resolve?.();
-    onAbort?.();
-  };
+    const handleMessage = async (message: StreamMessage<T>) => {
+      latestMessage = message;
 
-  const promise = new Promise<void>((resolve, reject) => {
-    _resolve = resolve;
-
-    stream.addEventListener('message', async (message) => {
       try {
         await onMessage?.(message);
       } catch (error) {
-        stream.disconnect();
         reject(error);
       }
-    });
+    };
 
-    stream.addEventListener('close', () => {
-      resolve();
-    });
-
-    stream.addEventListener('error', (error) => {
-      stream.disconnect();
+    const handleError = (error: Error) => {
       reject(error);
-    });
+    };
 
-    stream.connect(params);
+    const handleClose = () => {
+      resolve(latestMessage);
+    };
+
+    stream.addEventListener('message', handleMessage);
+    stream.addEventListener('error', handleError);
+    stream.addEventListener('close', handleClose);
+
+    stream
+      .connect(variables, {
+        signal,
+      })
+      .finally(() => {
+        stream.removeEventListener('message', handleMessage);
+        stream.removeEventListener('error', handleError);
+        stream.removeEventListener('close', handleClose);
+      });
   });
-
-  return {
-    promise,
-    abort,
-  };
 };
 
 export default withPromise;
