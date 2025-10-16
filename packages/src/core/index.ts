@@ -83,7 +83,7 @@ export type Stream<T, V = void> = {
  * stream.connect();
  * ```
  */
-const createStream = <T, V = void>(
+export const createStream = <T, V = void>(
   config: StreamRequestConfig<V>,
 ): Stream<T, V> => {
   const emitter = createEmitter<StreamEvents<T>>();
@@ -144,5 +144,3 @@ const createStream = <T, V = void>(
     removeEventListener: emitter.off,
   };
 };
-
-export default createStream;

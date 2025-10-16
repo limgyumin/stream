@@ -37,7 +37,7 @@ export type WithPromiseOptions<T> = ConnectOptions & {
  * }
  * ```
  */
-const withPromise: WithPromiseFunction = <T, V = void>(
+export const withPromise: WithPromiseFunction = <T, V = void>(
   stream: Stream<T, V>,
   variables: V,
   options?: WithPromiseOptions<T>,
@@ -80,5 +80,3 @@ const withPromise: WithPromiseFunction = <T, V = void>(
       });
   });
 };
-
-export default withPromise;

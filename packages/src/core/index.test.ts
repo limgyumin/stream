@@ -1,7 +1,7 @@
 import { describe, it, vi, expect } from 'vitest';
 
-import createStream from '.';
-import { createMockStream, mockFetch } from '../__test__';
+import { createStream } from '.';
+import { createMockStream, mockFetch } from '../../__test__';
 
 describe('createStream', () => {
   it.concurrent('스트리밍을 처리할 수 있다.', async () => {
