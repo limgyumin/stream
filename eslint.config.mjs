@@ -34,7 +34,13 @@ export default [
     },
     rules: {
       'no-console': ['warn', { allow: ['error'] }],
-      'no-unused-vars': ['warn', { caughtErrors: 'none' }],
+      'no-unused-vars': [
+        'warn',
+        {
+          caughtErrors: 'none',
+          varsIgnorePattern: '^_',
+        },
+      ],
       'no-undef': 'error',
       'object-shorthand': 'error',
       'require-await': 'off',
