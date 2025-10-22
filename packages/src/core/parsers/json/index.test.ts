@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
-import { createSSEJsonParser } from '.';
+import { createJsonParser } from '.';
 
-describe('createSSEJsonParser', () => {
-  it.concurrent('텍스트 형식의 청크를 JSON 형식으로 파싱한다.', () => {
-    const parse = createSSEJsonParser();
+describe('createJsonParser', () => {
+  it.concurrent('Parses text-based chunks into JSON format.', () => {
+    const parse = createJsonParser();
 
     const chunks = [
       'data: {"text":"stable"}\n\n',
@@ -22,9 +22,9 @@ describe('createSSEJsonParser', () => {
   });
 
   it.concurrent(
-    '하나의 청크에 여러 데이터가 포함된 경우 개별 요소로 파싱한다.',
+    'Splits a single chunk containing multiple events into individual chunks and parses them.',
     () => {
-      const parse = createSSEJsonParser();
+      const parse = createJsonParser();
 
       const chunks = [
         'data: {"text":"stable"}\n\ndata: {"text":"stable"}\n\n',
@@ -46,10 +46,10 @@ describe('createSSEJsonParser', () => {
     },
   );
 
-  it.concurrent('잘린 청크가 전달된 경우 정규화된 청크로 파싱한다.', () => {
-    const parse = createSSEJsonParser();
+  it.concurrent('Parses truncated chunks into normalized chunks.', () => {
+    const parse = createJsonParser();
 
-    // 단일 이벤트만 존재하는 경우
+    // When a single event exists
     const chunks1 = [
       'data: ',
       '{"text":"unstable"}\n\n',
@@ -68,7 +68,7 @@ describe('createSSEJsonParser', () => {
       { event: 'test', id: '123', retry: 1000, data: { text: 'unstable' } },
     ]);
 
-    // 여러 이벤트가 존재하고, 마지막 이벤트만 잘린 경우
+    // When multiple events exist and only the last event is truncated
     const chunks2 = [
       'data: {"text":"stable"}\n\ndata: ',
       '{"text":"unstable"}\n\n',
@@ -91,7 +91,7 @@ describe('createSSEJsonParser', () => {
       { event: 'test', id: '123', retry: 1000, data: { text: 'unstable' } },
     ]);
 
-    // 단일 이벤트가 2개를 초과하는 청크로 잘린 경우
+    // When a chunk containing more than two events is truncated
     const chunks3 = [
       'data: ',
       '{"text":"long ',
@@ -121,11 +121,11 @@ describe('createSSEJsonParser', () => {
   });
 
   it.concurrent(
-    'data 필드가 여러 줄로 구성된 경우 정규화된 청크로 파싱한다.',
+    'Parses normalized chunks when the "data" field consists of multiple lines.',
     () => {
-      const parse = createSSEJsonParser();
+      const parse = createJsonParser();
 
-      // 정상적인 이벤트인 경우
+      // When a normal event exists
       const chunks1 = [
         'data: text1\ndata: text2\n\n',
         'event: test\ndata: text1\ndata: text2\n\n',
@@ -140,7 +140,7 @@ describe('createSSEJsonParser', () => {
         { event: 'test', id: '123', retry: 1000, data: 'text1\ntext2' },
       ]);
 
-      // 잘린 이벤트인 경우
+      // When a truncated event exists
       const chunks2 = [
         'data: text1',
         '\ndata: text2\n\n',
@@ -161,16 +161,16 @@ describe('createSSEJsonParser', () => {
     },
   );
 
-  it.concurrent('빈 청크가 전달된 경우 무시한다.', () => {
-    const parse = createSSEJsonParser();
+  it.concurrent('Ignores empty chunks.', () => {
+    const parse = createJsonParser();
 
     const chunk = '';
 
     expect(parse(chunk)).toEqual([]);
   });
 
-  it.concurrent('CR, LF, CRLF 개행 문자 형식을 지원한다.', () => {
-    const parse = createSSEJsonParser();
+  it.concurrent('Supports CR, LF, CRLF line break formats.', () => {
+    const parse = createJsonParser();
 
     const chunks = [
       'event: test\ndata: {"text":"CR"}\r\r',
