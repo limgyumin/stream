@@ -23,7 +23,7 @@ export type RequestConfig = Overwrite<
   }
 >;
 
-export const fetchImpl = async (config: RequestConfig): Promise<Response> => {
+export const safeFetch = async (config: RequestConfig): Promise<Response> => {
   const { url, method = 'GET', query, body, ...rest } = config;
 
   const options: RequestInit & { url: HttpURL } = {

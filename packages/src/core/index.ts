@@ -1,146 +1,176 @@
-import { fetchImpl, type RequestConfig } from './fetch';
-import type { Overwrite, Resolvable } from '../types';
-import { createSSEJsonParser } from './parsers/json';
-import { createEmitter, type Emitter } from '../utils/emitter';
-import { resolve } from '../utils/function';
+import { safeFetch, type RequestConfig } from './fetch';
+import { createJsonParser } from './parsers/json';
 import { readStream } from '../utils/stream';
+import { isError } from '../utils/error';
 
-export type StreamRequestConfig<P> = Overwrite<
-  RequestConfig,
-  {
-    /**
-     * @description 요청을 보낼 URL 로, 외부 파라미터를 받는 경우 함수로 정의할 수 있습니다.
-     */
-    url: Resolvable<RequestConfig['url'], P>;
+export type FinishReason = 'abort' | 'error' | 'done' | 'unknown';
 
-    /**
-     * @description URL 에 포함할 query parameter 로, 외부 파라미터를 받는 경우 함수로 정의할 수 있습니다.
-     */
-    query?: Resolvable<RequestConfig['query'], P>;
+export type Stream<T = unknown> = {
+  /**
+   * A string identifying the type of event described.
+   */
+  readonly event?: string;
 
-    /**
-     * @description 요청에 포함될 부가 데이터로, 외부 파라미터를 받는 경우 함수로 정의할 수 있습니다.
-     */
-    body?: Resolvable<RequestConfig['body'], P>;
-  }
->;
+  /**
+   * The number of times to retry the request.
+   */
+  readonly retry?: number;
 
-export type StreamMessage<T = any> = {
-  event?: string;
-  retry?: number;
-  id?: string;
-  data: T;
+  /**
+   * A string identifying the event.
+   */
+  readonly id?: string;
+
+  /**
+   * The data field for the message.
+   */
+  readonly data: T;
 };
 
-export type StreamEvents<T> = {
-  message: StreamMessage<T>;
-  error: Error;
-  close: undefined;
-};
-
-export type ConnectOptions = {
+export type StreamOptions = {
+  /**
+   * Abort signal that can be used to abort the stream.
+   *
+   * @example
+   * ```ts
+   * const chunks = stream(config, {
+   *   signal: AbortSignal.timeout(1000 * 10),
+   * });
+   * ```
+   */
   signal?: AbortSignal;
+
+  /**
+   * Callback that is called when an error occurs during streaming.
+   *
+   * @example
+   * ```ts
+   * const chunks = stream(config, {
+   *   onError: (error) => {
+   *     console.error(error);
+   *   },
+   * });
+   * ```
+   */
+  onError?: (error: Error) => void;
+
+  /**
+   * Callback that is called when streaming is aborted.
+   *
+   * @example
+   * ```ts
+   * const chunks = stream(config, {
+   *   signal: AbortSignal.timeout(1000 * 10),
+   *   onAbort: () => {
+   *     console.log('aborted');
+   *   },
+   * });
+   * ```
+   */
+  onAbort?: () => void;
+
+  /**
+   * Callback that is called when streaming is finished.
+   *
+   * @example
+   * ```ts
+   * const chunks = stream(config, {
+   *   onFinish: (reason) => {
+   *     console.log('finished by:', reason);
+   *   },
+   * });
+   * ```
+   */
+  onFinish?: (reason: FinishReason) => void;
 };
 
-export type Stream<T, V = void> = {
-  /**
-   * @description 스트림을 연결하는 함수입니다.
-   */
-  connect: (variables: V, options?: ConnectOptions) => Promise<void>;
+declare const dataSymbol: unique symbol;
 
-  /**
-   * @description 스트림 생명주기 기반의 이벤트 리스너를 등록하는 함수입니다.
-   */
-  addEventListener: Emitter<StreamEvents<T>>['on'];
-
-  /**
-   * @description 스트림 생명주기 기반의 이벤트 리스너를 제거하는 함수입니다.
-   */
-  removeEventListener: Emitter<StreamEvents<T>>['off'];
+export type StreamConfig<T> = RequestConfig & {
+  [dataSymbol]?: T;
 };
 
 /**
- * @description SSE 기반의 스트리밍을 처리하는 유틸리티입니다.
+ * Allows you to share and reuse stream config in a type-safe way.
+ *
  * @example
- * ```tsx
- * const stream = createStream({
+ * ```ts
+ * const config = streamConfig({
  *   url: 'https://example.com/stream',
- *   method: 'POST',
  * });
  *
- * stream.addEventListener('message', (message) => {
- *   console.log(message);
- * });
- *
- * stream.addEventListener('error', (error) => {
- *   console.error(error);
- * });
- *
- * stream.addEventListener('close', () => {
- *   console.log('close');
- * });
- *
- * stream.connect();
+ * const chunks = stream(config);
  * ```
  */
-export const createStream = <T, V = void>(
-  config: StreamRequestConfig<V>,
-): Stream<T, V> => {
-  const emitter = createEmitter<StreamEvents<T>>();
-  const parse = createSSEJsonParser();
-
-  const connect = async (
-    variables: V,
-    options?: ConnectOptions,
-  ): Promise<void> => {
-    const { signal } = options ?? {};
-
-    try {
-      const response = await fetchImpl({
-        ...config,
-        url: resolve(config.url, variables),
-        query: resolve(config.query, variables),
-        body: resolve(config.body, variables),
-        signal,
-      });
-
-      if (!response.body) {
-        throw new Error('No response body.');
-      }
-
-      const stream = response.body
-        .pipeThrough(new TextDecoderStream())
-        .pipeThrough(
-          /**
-           * NOTE:
-           * 문자열로 디코딩된 청크를 SSE 원본 응답 형태에 맞는 JSON 으로 파싱하고, 개별 응답으로 읽을 수 있도록 큐에 추가한다.
-           */
-          new TransformStream<string, StreamMessage<T>>({
-            transform: (chunk, controller) => {
-              const messages = parse(chunk);
-
-              for (const message of messages) {
-                controller.enqueue(message);
-              }
-            },
-          }),
-        );
-
-      const chunks = readStream(stream);
-
-      for await (const chunk of chunks) {
-        emitter.emit('message', chunk);
-      }
-    } catch (error) {
-      emitter.emit('error', error as Error);
-    } finally {
-      emitter.emit('close');
-    }
-  };
-
-  return {
-    connect,
-    addEventListener: emitter.on,
-    removeEventListener: emitter.off,
-  };
+export const streamConfig = <T>(config: StreamConfig<T>): StreamConfig<T> => {
+  return config;
 };
+
+/**
+ * Streams the output received from the source.
+ *
+ * This function starts streaming immediately upon being called and does not throw any errors that occur during the process.
+ * To handle errors, use the onError callback.
+ *
+ * @example
+ * ```ts
+ * const chunks = stream({
+ *   url: 'https://example.com/stream',
+ * });
+ *
+ * for await (const chunk of chunks) {
+ *   console.log(chunk.data);
+ * }
+ * ```
+ */
+export async function* stream<T>(
+  config: StreamConfig<T>,
+  options?: StreamOptions,
+): AsyncGenerator<Stream<T>> {
+  const { signal, onError, onAbort, onFinish } = options ?? {};
+
+  let reason: FinishReason = 'unknown';
+
+  try {
+    const response = await safeFetch({ ...config, signal });
+
+    if (!response.body) {
+      throw new Error('No response body.');
+    }
+
+    const parse = createJsonParser();
+
+    const piped = response.body
+      .pipeThrough(new TextDecoderStream())
+      .pipeThrough(
+        new TransformStream<string, Stream<T>>({
+          /**
+           * Decode the chunks as strings, parse them into JSON matching the original response format,
+           * and enqueue them so they can be read as individual responses.
+           */
+          transform: (chunks, controller) => {
+            for (const chunk of parse(chunks)) {
+              controller.enqueue(chunk);
+            }
+          },
+        }),
+      );
+
+    yield* readStream(piped);
+
+    reason = 'done';
+  } catch (error) {
+    if (signal?.aborted) {
+      reason = 'abort';
+      onAbort?.();
+      return;
+    }
+
+    if (isError(error)) {
+      reason = 'error';
+      onError?.(error);
+    }
+  } finally {
+    onFinish?.(reason);
+  }
+}

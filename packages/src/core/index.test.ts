@@ -1,11 +1,11 @@
 import { describe, it, vi, expect } from 'vitest';
 
-import { createStream } from '.';
+import { stream } from '.';
 import { createMockStream, mockFetch } from '../../__test__';
 
-describe('createStream', () => {
-  it.concurrent('스트리밍을 처리할 수 있다.', async () => {
-    const chunks = [
+describe('stream', () => {
+  it.concurrent('can handle streaming.', async () => {
+    const mockChunks = [
       { event: 'test', data: { text: 'stable 1' } },
       { event: 'test', data: { text: 'stable 2' } },
       { event: 'test', data: { text: 'stable 3' } },
@@ -13,63 +13,55 @@ describe('createStream', () => {
 
     mockFetch({
       ok: true,
-      body: createMockStream(chunks),
+      body: createMockStream(mockChunks),
     });
 
-    const stream = createStream({
+    const chunks = stream({
       url: 'test',
     });
 
-    const onMessage = vi.fn();
+    let index = 0;
 
-    stream.addEventListener('message', onMessage);
+    for await (const chunk of chunks) {
+      expect(chunk).toEqual(mockChunks[index]);
+      index++;
+    }
 
-    await stream.connect();
-
-    expect(onMessage).toHaveBeenNthCalledWith(1, chunks[0]);
-    expect(onMessage).toHaveBeenNthCalledWith(2, chunks[1]);
-    expect(onMessage).toHaveBeenNthCalledWith(3, chunks[2]);
+    expect(index).toBe(mockChunks.length);
   });
 
-  it.concurrent('HTTP 에러를 처리할 수 있다.', async () => {
+  it.concurrent('can handle occurred errors while streaming.', async () => {
     mockFetch({
       ok: false,
       status: 500,
       statusText: 'Internal Server Error',
     });
 
-    const stream = createStream({
-      url: 'test',
-    });
-
     const onError = vi.fn();
 
-    stream.addEventListener('error', onError);
+    const chunks = stream({ url: 'test' }, { onError });
 
-    await stream.connect();
+    for await (const _ of chunks) {
+      // do nothing
+    }
 
     expect(onError).toHaveBeenCalled();
   });
 
-  it.concurrent(
-    '스트리밍이 종료 되었을 때 작업을 처리할 수 있다.',
-    async () => {
-      mockFetch({
-        ok: true,
-        body: createMockStream([{ event: 'test', data: { text: 'stable 1' } }]),
-      });
+  it.concurrent('can handle streaming when it is finished.', async () => {
+    mockFetch({
+      ok: true,
+      body: createMockStream([{ event: 'test', data: { text: 'stable 1' } }]),
+    });
 
-      const stream = createStream({
-        url: 'test',
-      });
+    const onFinish = vi.fn();
 
-      const onClose = vi.fn();
+    const chunks = stream({ url: 'test' }, { onFinish });
 
-      stream.addEventListener('close', onClose);
+    for await (const _ of chunks) {
+      // do nothing
+    }
 
-      await stream.connect();
-
-      expect(onClose).toHaveBeenCalled();
-    },
-  );
+    expect(onFinish).toHaveBeenCalled();
+  });
 });
